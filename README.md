@@ -1,1 +1,2 @@
 # protease_insilico_screening
+This repository contains the source files and supplementary information for the the in silico-guided directed evolution of protease framework, which is described in Martin J. Thiele1§, Gaurao V. Dhoke1§, Felix Esser1, Isabell Hofmann1, Ulrich Schwaneberg1,2, Mehdi D. Davari*3, An In Silico-Guided Directed Evolution of Protease: Spotlighting the Beneficial Positions, To be published
