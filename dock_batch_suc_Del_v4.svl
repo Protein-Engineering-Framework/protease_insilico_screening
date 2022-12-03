@@ -1,0 +1,268 @@
+#svl
+
+function Recover_Mol;
+function DockAtoms, DockFile;
+function aDist, pro_BackboneAtoms;
+
+function DockMDBwAtoms, DockMDBwFile;
+
+//V1:
+//  -Added routine to remove OG from Ser215
+//V2: 
+//  -Changed ForceField(MMFF94X->Amber12) and Scoring method(Londong dG->ASE and GBVI/WSA->Alpha HB)
+//
+
+
+const p1 = 
+#  string
+  #moe:ph4que 2014.09
+  #pharmacophore 7 tag t value *
+  scheme t Unified matchsize i 0 use_Hs i 1 abspos i 0 title t $ useRval i
+  0 comment s $
+  #feature 3 expr tt color ix x r y r z r r r ebits ix gbits ix m ix
+  $i[C$k(C(O)Nc1ccc([N+](O)=O)cc1)]$i f2f20d
+#;
+
+const p2 = 
+#  string
+  2.5 0 400
+  a64cff $i[NH1$k(Nc1ccc([N+](O)=O)cc1)]$i f2f20d 
+#;
+
+const p3 = 
+#  string
+  4 0
+  400 a64cff $i[O$k(OCNc1ccc([N+](O)=O)cc1)]$i f2f20d 
+#;
+
+const p4 = 
+#  string
+  3 0 400 a64cff
+  #endpharmacophore
+#;
+
+
+
+local function edit_ph4 [ph_file]
+  //local ph4 = ph_file;
+  print['edit_ph4 called'];
+  local pos1, pos2, pos3, receptor;
+  
+  receptor = get[cat _SelectExpr['rec', Chains[]],1];
+  if rName[get[Residues[],215]] == 'SER' then
+  	pos1 = aPos[cat rAtoms[get[cat cResidues[receptor],215]] | aName cat rAtoms[get[cat cResidues[receptor],215]] == 'OG'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],215]] | aName cat rAtoms[get[cat cResidues[receptor],215]] == 'CB'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],215]] | aName cat rAtoms[get[cat cResidues[receptor],215]] == 'HB2'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],215]] | aName cat rAtoms[get[cat cResidues[receptor],215]] == 'HB3'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],215]] | aName cat rAtoms[get[cat cResidues[receptor],215]] == 'OG'];
+        pos2 = aPos[cat rAtoms[get[cat cResidues[receptor],62]] | aName cat rAtoms[get[cat cResidues[receptor],62]] == 'NE2'];
+        pos3 = aPos[cat rAtoms[get[cat cResidues[receptor],153]] | aName cat rAtoms[get[cat cResidues[receptor],153]] == 'ND2'];
+  elseif rName[get[Residues[],221]] == 'SER' then
+        pos1 = aPos[cat rAtoms[get[cat cResidues[receptor],221]] | aName cat rAtoms[get[cat cResidues[receptor],221]] == 'OG'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],221]] | aName cat rAtoms[get[cat cResidues[receptor],221]] == 'CB'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],221]] | aName cat rAtoms[get[cat cResidues[receptor],221]] == 'HB2'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],221]] | aName cat rAtoms[get[cat cResidues[receptor],221]] == 'HB3'];
+        oDestroy[cat rAtoms[get[cat cResidues[receptor],221]] | aName cat rAtoms[get[cat cResidues[receptor],221]] == 'OG'];
+        pos2 = aPos[cat rAtoms[get[cat cResidues[receptor],64]] | aName cat rAtoms[get[cat cResidues[receptor],64]] == 'NE2'];
+        pos3 = aPos[cat rAtoms[get[cat cResidues[receptor],155]] | aName cat rAtoms[get[cat cResidues[receptor],155]] == 'ND2'];
+  endif
+  //oDestroy get[cat cResidues[receptor],215];
+  //oDestroy[cat rAtoms[get[cat cResidues[receptor],215]] | aName cat rAtoms[get[cat cResidues[receptor],215]] == 'OG'];
+
+  fwrite[ph_file, '{} {} {} {} {} {} {}', p1, pos1, p2, pos2, p3, pos3, p4];
+endfunction
+
+
+local function run_ph4_dock [ofile, recmdb, ligmdb, k_pot, method, poses]
+  if isnull k_pot then
+    k_pot = 50;
+  endif;
+  if isnull method then
+    method = 'Fix';
+  endif;
+  if isnull poses then
+    poses = 30;
+  endif;
+
+  local entry, receptor_db, ph4file, p_name, foo, index, outdb, outf, pose, entry_record;
+  outdb = db_Open [ ofile ,'create' ];
+  db_EnsureField [ outdb, 'mol', 'molecule' ];
+  db_EnsureField [ outdb, 'mutseq', 'int' ];
+  db_EnsureField [ outdb, 'mutation', 'char' ];
+  db_EnsureField [ outdb, 'S', 'float' ];
+  db_EnsureField [ outdb, 'rec', 'molecule' ];
+  db_EnsureField [ outdb, 'Method', 'char' ];
+  db_EnsureField [ outdb, 'Poses', 'int' ];
+  db_EnsureField [ outdb, 'kPot', 'int' ];
+  db_EnsureField [ outdb, 'Rec_MDB', 'char' ];
+  for entry in db_Entries[recmdb] loop
+    local psys = SystemPush [];
+    method = token method;
+    //outf = token splice ["X_docked.mdb", 1, 1, string totok entry];
+    //outf = token splice ["X_docked.mdb", 1, 1, string totok index];
+    //index = index + 1;
+    //if isnull outf then
+      //print[string totok entry];
+      //outf = token splice["X_docked.mdb", 1, 1, [entry]];
+      //outf = 'dock.mdb';
+    //endif;
+    
+    //read receptor
+    
+    //set ph4 locations
+    local rec, lig;
+    receptor_db = db_ReadFields[recmdb, entry, 'mol']; 
+    rec = (mol_Create first receptor_db)(1);
+    local site = oGetCollection 'MOEDock_Site';
+    ph4file = fnametemp []; // token splice["X_pharma.ph4", 1, 1, string cName rec];
+    edit_ph4[ph4file];
+    outf = ffullname fopentemp [];
+    Recover_Mol [];
+    local opt = [
+      outrmsd: 0,
+      sel_ent_only_rec: 0,
+      sel_ent_only: 0,
+      wall: [ '', 0, [ 0, 0, 0 ], [ 1000000, 1000000, 1000000 ], 0 ],
+      csearch: 1,
+      placement: 'Pharmacophore',
+      placement_opt: [ panel : 'OK',	timeout : 300,	nretpose : 5000 ],
+      scoring: 'London dG',
+      scoring_opt: [ train : 0 ],
+      dup_placement: 1,
+      maxpose: toint poses,
+      refine: 'Forcefield',
+      refine_opt: [ panel : 'OK',	wholeres : 1,	cutoff : 6,	fixrec : method,	tether : 10,	OverrideSetup : 1,	mmgbvi : 1,	gtest : 0.01,	maxit : 1000,	k_potl : toint k_pot,	roffset : 0.4 ],
+      rescoring: 'GBVI/WSA dG',
+      rescoring_opt: [  ],
+      dup_refine: 1,
+      remaxpose: toint poses,
+      descexpr: '',
+      receptor_mfield: 'rec',
+      ligand_mfield: 'mol',
+      ph4: ph4file,
+      BatchFile: 'dock_batch.svl'
+      ];
+    pot_Load '$MOE/lib/amber12eht.ff';
+    pot_Setup [
+      strEnable: 1,
+      angEnable: 1,
+      stbEnable: 1,
+      oopEnable: 1,
+      torEnable: 1,
+      vdwEnable: 1,
+      eleEnable: 1,
+      solEnable: 0,
+      resEnable: 1,
+      strWeight: 1,
+      angWeight: 1,
+      stbWeight: 1,
+      oopWeight: 1,
+      torWeight: 1,
+      vdwWeight: 1,
+      eleWeight: 1,
+      solWeight: 1,
+      resWeight: 1,
+      cutoffEnable: 1,
+      cutoffOn: 8,
+      cutoffOff: 10,
+      eleDist: 1,
+      vdwScale14: 0.5,
+      vdwBuffer1: 0,
+      vdwBuffer2: 0,
+      eleScale14: 0.833333,
+      eleDielectric: 1,
+      eleBuffer: 0,
+      solDielectric: 80,
+      solDielectricOffset: 0,
+      state0: 1,
+      state1: 0,
+      state2: 1,
+      threadCount: 0
+        ];
+    print['before docking'];
+    DockFile [rec, site, ligmdb, outf, opt];
+    write ['Docking finished at {}.\n', asctime []];
+    //open docking db
+    for pose in db_Entries [ outf ] loop
+      local key, rec_flex;
+      print['In endloop'];
+      local [one, two] = db_ReadFields [ outf, pose, ['mol', 'S'] ] ;
+      oDestroy Chains[];
+      if method <> 'Fix' then 
+        receptor_db = db_ReadFields[ outf, pose, ['receptor'] ];
+        print['<>Fix'];
+      endif
+      mol_Create first receptor_db; 
+      oDestroy[cat _SelectExpr['lig', Chains[]]];
+      oDestroy[cat _SelectExpr['sol', Chains[]]];
+      rec_flex = first cat _SelectExpr['rec', Chains[]];
+      print['rec done', rec_flex];
+      local ligand = (mol_Create first db_ReadFields[outf, pose, 'mol'])(1);
+      print['lig created', ligand];
+      local [n,ca,sci_C,sci_O] = pro_BackboneAtoms[get[cat cResidues[ ligand ],5]];
+      //if aDist[cat rAtoms[get[cat cResidues[rec_flex],215]] | aName cat rAtoms[get[cat cResidues[rec_flex],215]] == 'HB1', sci_C] > 2 then 
+      //  db_Delete [ outf , pose ];
+      //  continue;
+      if rName[get[Residues[rec_flex],215]] === 'SER' then
+        print['Ser215'];
+        if aDist[cat rAtoms[get[cat cResidues[rec_flex],153]] | aName cat rAtoms[get[cat cResidues[rec_flex],153]] == 'ND2', sci_O] > 3 then 
+          db_Delete [ outf , pose ];
+          continue;
+        elseif aDist[cat rAtoms[get[cat cResidues[rec_flex],62]] | aName cat rAtoms[get[cat cResidues[rec_flex],62]] == 'NE2', cat rAtoms[get[cat cResidues[ligand],6]] | aName cat rAtoms[get[cat cResidues[ligand],6]] == 'N2'] > 4 then 
+          db_Delete [ outf , pose ];
+          continue;
+        else
+          key = db_Write [ outdb, 0, [mol:one, S:two, rec:first receptor_db, mutseq:first db_ReadFields[recmdb, entry, 'mutseq'], mutation:first db_ReadFields[recmdb, entry, 'mutation']]];
+          db_Write [ outdb, key, [Method: string method, Poses: toint poses, kPot: toint k_pot, Rec_MDB: string recmdb]];
+          ;break;
+        endif
+      elseif rName[get[Residues[rec_flex],221]] === 'SER' then
+        if aDist[cat rAtoms[get[cat cResidues[rec_flex],155]] | aName cat rAtoms[get[cat cResidues[rec_flex],155]] == 'ND2', sci_O] > 3 then
+          db_Delete [ outf , pose ];
+          continue;
+        elseif aDist[cat rAtoms[get[cat cResidues[rec_flex],64]] | aName cat rAtoms[get[cat cResidues[rec_flex],64]] == 'NE2', cat rAtoms[get[cat cResidues[ligand],6]] | aName cat rAtoms[get[cat cResidues[ligand],6]] == 'N2'] > 4 then
+          db_Delete [ outf , pose ];
+          continue;
+        else
+          key = db_Write [ outdb, 0, [mol:one, S:two, rec:first receptor_db, mutseq:first db_ReadFields[recmdb, entry, 'mutseq'], mutation:first db_ReadFields[recmdb, entry, 'mutation']]];
+          db_Write [ outdb, key, [Method: string method, Poses: toint poses, kPot: toint k_pot, Rec_MDB: string recmdb]];
+          ;break;
+        endif
+      endif
+    endloop
+    //read docking db
+    //write entrys into output db
+    fdelete ph4file;
+    fdelete outf;
+    SystemPop psys;
+  endloop
+endfunction
+ 
+
+const MOE_FILE = 
+#  string
+  Nope
+#;
+
+local function Recover_Mol []
+    local f = fopen '';
+    fwriteb [f, 'char', r64_decode MOE_FILE];
+    fseek [f, 0];
+    ReadMOE f;
+    fclose f;
+endfunction
+
+
+global argv;
+function ArgvPull;
+
+local function main []
+    ArgvReset ArgvExpand argv;
+    local [recmdb, ligmdb, ofile, k_pot, method, poses] = ArgvPull [
+	['-rec', '-lig','-o', '-k', '-m', '-p'],
+	1
+    ];
+  run_ph4_dock [ofile, recmdb, ligmdb, k_pot, method, poses];
+  exit[];
+endfunction
+
